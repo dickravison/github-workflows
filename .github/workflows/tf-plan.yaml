@@ -1,0 +1,174 @@
+name: Validate and Plan Terraform
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: 'The env to run this in.'
+        default: 'dev'
+        required: false
+        type: string
+      tf_root:
+        description: 'The root directory containing the Terraform code.'
+        default: './tf'
+        required: false
+        type: string
+      tf_version:
+        description: 'The Terraform version to use.'
+        default: '1.9.5'
+        required: false
+        type: string
+      runner:
+        description: 'The type of runner to use.'
+        default: 'ubuntu-latest'
+        required: false
+        type: string
+      aws_session:
+        description: 'The name of the session when GitHub assumes the AWS role.'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  lint:
+    name: Lint and validate Terraform
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4.1.7
+
+      - name: Set role
+        id: set-deploy-role
+        run: |
+          if [ ${{ inputs.env }} == 'dev' ]; then
+            role_arn="${{ secrets.DEV_DEPLOY_ROLE }}"
+          elif [ ${{ inputs.env }} == 'prd' ]; then
+            role_arn="${{ secrets.PRD_DEPLOY_ROLE }}"
+          fi
+          echo "role_arn=$role_arn" >> $GITHUB_OUTPUT
+        
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          aws-region: eu-west-1
+          role-to-assume: ${{ steps.set-deploy-role.outputs.role_arn }}
+          role-session-name: ${{ inputs.aws_session }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: ${{ inputs.tf_version}}
+
+      - name: Check the Terraform formatting
+        id: fmt
+        working-directory: ${{ inputs.tf_root }}
+        run: terraform fmt -check -diff -recursive
+
+      - name: Run Terraform Init
+        id: init
+        working-directory: ${{ inputs.tf_root }}
+        run: terraform init -backend-config="./env/${{ inputs.env }}.hcl"
+
+      - name: Validate Terraform
+        id: validate
+        working-directory: ${{ inputs.tf_root }}
+        run: terraform validate -no-color
+
+      - name: Setup tflint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: Init tflint
+        working-directory: ${{ inputs.tf_root }}
+        run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run tflint
+        working-directory: ${{ inputs.tf_root }}
+        run: tflint --recursive --config $(pwd)/.tflint.hcl
+      
+  checkov:
+    name: Check for security issues
+    needs: lint
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4.1.7
+
+      - name: Run Checkov action
+        id: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: ${{ inputs.tf_root }}
+          quiet: true
+          soft_fail: true
+          output_format: cli
+
+      - name: Post results to GitHub PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > formatted-comment.md << EOF
+          ## Checkov findings
+          \`\`\`
+          ${{ env.CHECKOV_RESULTS }}
+          \`\`\`
+          EOF
+          gh pr comment ${{ github.event.pull_request.number }} --body-file formatted-comment.md
+
+  plan:
+    name: Plan
+    needs: lint
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4.1.7
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: ${{ inputs.tf_version }}
+
+      - name: Set role
+        id: set-deploy-role
+        run: |
+          if [ ${{ inputs.env }} == 'dev' ]; then
+            role_arn="${{ secrets.DEV_DEPLOY_ROLE }}"
+          elif [ ${{ inputs.env }} == 'prd' ]; then
+            role_arn="${{ secrets.PRD_DEPLOY_ROLE }}"
+          fi
+          echo "role_arn=$role_arn" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          aws-region: eu-west-1
+          role-to-assume: ${{ steps.set-deploy-role.outputs.role_arn }}
+          role-session-name: ${{ inputs.aws_session }}
+
+      - name: Run Terraform Init
+        id: init
+        working-directory: ${{ inputs.tf_root }}
+        run: terraform init -backend-config="./env/${{ inputs.env }}.hcl"
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ${{ inputs.tf_root }}
+        run: terraform plan -var-file="./env/${{ inputs.env }}.tfvars" -no-color -out tf.plan
+        continue-on-error: true
+
+      - name: Post Plan to GitHub PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat > formatted-comment.md << EOF
+          ## Terraform plan
+          \`\`\`
+          ${{ steps.plan.outputs.stdout || steps.plan.outputs.stderr }}
+          \`\`\`
+          EOF
+          gh pr comment ${{ github.event.pull_request.number }} --body-file formatted-comment.md
