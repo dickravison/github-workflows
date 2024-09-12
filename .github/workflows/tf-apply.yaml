@@ -1,0 +1,57 @@
+name: Deploy Terraform
+
+on:
+  workflow_call:
+    inputs:
+      tf_root:
+        description: 'The root directory containing the Terraform code.'
+        default: './tf'
+        required: false
+        type: string
+      tf_version:
+        description: 'The Terraform version to use.'
+        default: '1.9.5'
+        required: false
+        type: string
+      runner:
+        description: 'The type of runner to use.'
+        default: 'ubuntu-latest'
+        required: false
+        type: string
+      aws_role:
+        description: 'The ARN of the AWS role to assume.'
+        required: true
+        type: string
+      aws_session:
+        description: 'The name of the session when GitHub assumes the AWS role'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy Terraform
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4.1.7
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          aws-region: eu-west-1
+          role-to-assume: ${{ inputs.aws_role }}
+          role-session-name: ${{ inputs.aws_session }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3.1.2
+        with:
+          terraform_version: ${{ inputs.tf_version }}
+
+      - name: Run Terraform Init
+        id: init
+        working-directory: ${{ inputs.tf_root }}
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ${{ inputs.tf_root }}
+        run: terraform apply -auto-approve -input=false
