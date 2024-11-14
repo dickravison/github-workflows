@@ -1,0 +1,72 @@
+name: Deploy Terraform
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: 'The env to run this in.'
+        default: 'dev'
+        required: false
+        type: string
+      tf_root:
+        description: 'The root directory containing the Terraform code.'
+        default: './tf'
+        required: false
+        type: string
+      tf_version:
+        description: 'The Terraform version to use.'
+        default: '1.9.5'
+        required: false
+        type: string
+      runner:
+        description: 'The type of runner to use.'
+        default: 'ubuntu-latest'
+        required: false
+        type: string
+      aws_session:
+        description: 'The name of the session when GitHub assumes the AWS role.'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Terraform
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4.1.7
+
+      - name: Set role
+        id: set-deploy-role
+        run: |
+          if [ ${{ inputs.env }} == 'dev' ]; then
+            role_arn="${{ secrets.DEV_DEPLOY_ROLE}}"
+          elif [ ${{ inputs.env }} == 'prd' ]; then
+            role_arn="${{ secrets.PRD_DEPLOY_ROLE}}"
+          fi
+          echo "role_arn=$role_arn" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4.0.2
+        with:
+          aws-region: eu-west-1
+          role-to-assume: ${{ steps.set-deploy-role.outputs.role_arn }}
+          role-session-name: ${{ inputs.aws_session }}
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ inputs.tf_version }}
+
+      - name: Run Tofu Init
+        id: init
+        working-directory: ${{ inputs.tf_root }}
+        run: tofu init -backend-config="./env/${{ inputs.env}}.hcl"
+
+      - name: Tofu Apply
+        working-directory: ${{ inputs.tf_root }}
+        run: tofu apply -var-file="./env/${{ inputs.env }}.tfvars" -auto-approve -input=false
