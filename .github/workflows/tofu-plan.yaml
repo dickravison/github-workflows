@@ -36,7 +36,7 @@ on:
 jobs:
   lint:
     name: Lint and validate Tofu
-    if: ${{ inputs.env == "dev" }}
+    if: ${{ inputs.env == 'dev' }}
     runs-on: ${{ inputs.runner }}
     permissions:
       id-token: write
@@ -97,7 +97,7 @@ jobs:
       
   checkov:
     name: Check for security issues
-    if: ${{ inputs.env == "dev" }}
+    if: ${{ inputs.env == 'dev' }}
     needs: lint
     runs-on: ${{ inputs.runner }}
     permissions:
