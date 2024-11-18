@@ -1,3 +1,39 @@
+name: Lint Tofu
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        description: 'The env to run this in.'
+        default: 'dev'
+        required: false
+        type: string
+      tf_root:
+        description: 'The root directory containing the Tofu code.'
+        default: './tf'
+        required: false
+        type: string
+      tf_version:
+        description: 'The Tofu version to use.'
+        default: '1.8.5'
+        required: false
+        type: string
+      runner:
+        description: 'The type of runner to use.'
+        default: 'ubuntu-latest'
+        required: false
+        type: string
+      aws_session:
+        description: 'The name of the session when GitHub assumes the AWS role.'
+        required: true
+        type: string
+      checkov_soft_fail:
+        description: 'Set to true to stop checkov errors from failing the workflow.'
+        default: 'false'
+        required: false
+        type: string
+
+jobs:
   lint:
     name: Lint and validate Tofu
     runs-on: ${{ inputs.runner }}
