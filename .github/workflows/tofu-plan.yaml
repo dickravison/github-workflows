@@ -155,6 +155,7 @@ jobs:
         continue-on-error: true
 
       - name: Post Plan to GitHub PR
+        if: ${{ github.event.pull_request.number != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
