@@ -33,15 +33,14 @@ on:
         required: false
         type: string
 
-permissions:
-  id-token: write
-  contents: read
-  pull-requests: write
-
 jobs:
   lint:
     name: Lint and validate Tofu
+    if: ${{ inputs.env == "dev" }}
     runs-on: ${{ inputs.runner }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Check out code
         uses: actions/checkout@v4.1.7
@@ -98,8 +97,12 @@ jobs:
       
   checkov:
     name: Check for security issues
+    if: ${{ inputs.env == "dev" }}
     needs: lint
     runs-on: ${{ inputs.runner }}
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Check out code
         uses: actions/checkout@v4.1.7
@@ -117,6 +120,10 @@ jobs:
     name: Plan
     needs: lint
     runs-on: ${{ inputs.runner }}
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
     steps:
       - name: Check out code
         uses: actions/checkout@v4.1.7
