@@ -36,7 +36,6 @@ on:
 jobs:
   plan:
     name: Plan
-    needs: lint
     runs-on: ${{ inputs.runner }}
     permissions:
       id-token: write
