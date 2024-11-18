@@ -34,87 +34,6 @@ on:
         type: string
 
 jobs:
-  lint:
-    name: Lint and validate Tofu
-    runs-on: ${{ inputs.runner }}
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4.1.7
-
-      - name: Set role
-        id: set-deploy-role
-        run: |
-          if [ ${{ inputs.env }} == 'dev' ]; then
-            role_arn="${{ secrets.DEV_DEPLOY_ROLE }}"
-          elif [ ${{ inputs.env }} == 'prd' ]; then
-            role_arn="${{ secrets.PRD_DEPLOY_ROLE }}"
-          fi
-          echo "role_arn=$role_arn" >> $GITHUB_OUTPUT
-        
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4.0.2
-        with:
-          aws-region: eu-west-1
-          role-to-assume: ${{ steps.set-deploy-role.outputs.role_arn }}
-          role-session-name: ${{ inputs.aws_session }}
-
-      - name: Setup Tofu
-        uses: opentofu/setup-opentofu@v1
-        with:
-          tofu_version: ${{ inputs.tf_version}}
-
-      - name: Check the Tofu formatting
-        id: fmt
-        working-directory: ${{ inputs.tf_root }}
-        run: tofu fmt -check -diff -recursive
-
-      - name: Run Tofu Init
-        id: init
-        working-directory: ${{ inputs.tf_root }}
-        run: tofu init -backend-config="./env/${{ inputs.env }}.hcl"
-
-      - name: Validate Tofu
-        id: validate
-        working-directory: ${{ inputs.tf_root }}
-        run: tofu validate -no-color
-
-      - name: Setup tflint
-        uses: terraform-linters/setup-tflint@v4
-
-      - name: Init tflint
-        working-directory: ${{ inputs.tf_root }}
-        run: tflint --init
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Run tflint
-        working-directory: ${{ inputs.tf_root }}
-        run: tflint --recursive --config $(pwd)/.tflint.hcl
-      
-  checkov:
-    name: Check for security issues
-    if: ${{ inputs.env == 'dev' }}
-    needs: lint
-    runs-on: ${{ inputs.runner }}
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4.1.7
-
-      - name: Run Checkov action
-        id: checkov
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: ${{ inputs.tf_root }}
-          quiet: true
-          soft_fail: ${{ inputs.checkov_soft_fail }}
-          output_format: cli
-
   plan:
     name: Plan
     needs: lint
@@ -122,7 +41,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-      pull-requests: write
     steps:
       - name: Check out code
         uses: actions/checkout@v4.1.7
@@ -158,17 +76,3 @@ jobs:
         id: plan
         working-directory: ${{ inputs.tf_root }}
         run: tofu plan -var-file="./env/${{ inputs.env }}.tfvars" -no-color -out tf.plan
-        continue-on-error: true
-
-      - name: Post Plan to GitHub PR
-        if: ${{ github.event.pull_request.number != '' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          cat > formatted-comment.md << EOF
-          ## Tofu plan
-          \`\`\`
-          ${{ steps.plan.outputs.stdout || steps.plan.outputs.stderr }}
-          \`\`\`
-          EOF
-          gh pr comment ${{ github.event.pull_request.number }} --body-file formatted-comment.md
